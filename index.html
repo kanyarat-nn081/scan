@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>เช็กชื่อเข้าเรียน</title>
+<script>
+  /* ▼▼▼ วางลิงก์เว็บแอป (ลงท้ายด้วย /exec) ระหว่างเครื่องหมาย ' ' ▼▼▼ */
+  const API_URL = 'https://script.google.com/macros/s/AKfycby4hKZLB78yWfaMN3L-53_7AEJaD1oqmc8lnpNL2DIVm9uq8VhIy2THypZPmkJq96Cy/exec';
+  /* ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ */
+
+  // จำลอง google.script.run ให้เรียก Apps Script ผ่าน doPost
+  function apiCall(action, args) {
+    return fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: action, args: args }) })
+      .then(r => r.json())
+      .then(j => { if (!j.ok) throw new Error(j.error); return j.data; });
+  }
+  function makeRunner(ok, bad) {
+    return new Proxy({}, { get: (_, name) => {
+      if (name === 'withSuccessHandler') return h => makeRunner(h, bad);
+      if (name === 'withFailureHandler') return h => makeRunner(ok, h);
+      return (...args) => apiCall(name, args)
+        .then(d => ok && ok(d))
+        .catch(e => bad && bad(e));
+    }});
+  }
+  var google = { script: { run: makeRunner(null, null) } };
+</script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Sarabun', 'Leelawadee UI', 'Thonburi', sans-serif; margin: 0; background: #eceff1; color: #212121; }
+  header { background: #37474f; color: #fff; padding: 12px 16px; font-size: 19px; font-weight: bold; }
+  .wrap { padding: 12px; max-width: 520px; margin: auto; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  select, input, button { font: inherit; font-size: 17px; }
+  select, input { flex: 1; min-width: 0; padding: 10px; border: 1px solid #b0bec5; border-radius: 8px; background: #fff; }
+  button { padding: 10px 14px; border: 0; border-radius: 8px; background: #37474f; color: #fff; white-space: nowrap; }
+  button.sec { background: #fff; color: #37474f; border: 1px solid #37474f; }
+  #count { font-size: 16px; color: #455a64; margin: 4px 0 8px; }
+  #reader { width: 100%; background: #263238; border-radius: 10px; overflow: hidden; min-height: 60px; }
+  #result { margin: 12px 0; padding: 14px 16px; border-radius: 10px; background: #fff; min-height: 64px; font-size: 16px; }
+  #result .name { font-size: 23px; font-weight: bold; margin-bottom: 2px; }
+  #result.ok { background: #c8e6c9; } #result.late { background: #fff59d; }
+  #result.dup { background: #bbdefb; } #result.err { background: #ffcdd2; }
+  .warn { color: #b71c1c; font-weight: bold; }
+  h4 { margin: 16px 0 6px; color: #455a64; }
+  .item { padding: 7px 0; border-bottom: 1px solid #cfd8dc; font-size: 15px; }
+  .item small { color: #607d8b; }
+</style>
+</head>
+<body>
+<header>เช็กชื่อเข้าเรียน <span id="who" style="float:right;font-weight:normal;font-size:15px"></span></header>
+
+<div class="wrap" id="loginView">
+  <p>ใส่รหัสผ่านผู้สแกนที่ได้รับจากอาจารย์</p>
+  <div class="row">
+    <input id="pin" type="password" inputmode="numeric" maxlength="8" placeholder="รหัสผ่าน 6 หลัก">
+    <button id="btnLogin">เข้าใช้</button>
+  </div>
+  <div id="loginMsg"></div>
+</div>
+
+<div class="wrap" id="mainView" style="display:none">
+  <div class="row"><select id="session"></select></div>
+  <div class="row"><select id="section"><option value="">ทุก Section</option></select></div>
+  <div id="count">กำลังโหลด…</div>
+
+  <div id="reader"></div>
+  <div id="filereader" style="display:none"></div>
+  <div class="row" style="margin-top:8px">
+    <button id="btnCam">เปิดกล้องสแกน</button>
+    <button class="sec" id="btnPhoto">ถ่ายภาพบัตร</button>
+    <input type="file" id="photo" accept="image/*" capture="environment" hidden>
+  </div>
+  <div class="row">
+    <input id="manual" inputmode="numeric" maxlength="20" placeholder="หรือพิมพ์รหัสนักศึกษา">
+    <button id="btnManual">บันทึก</button>
+  </div>
+
+  <div id="result">เลือกครั้งที่สอน แล้วกดเปิดกล้องสแกน</div>
+
+  <div class="row"><button class="sec" id="btnMissing">ดูรายชื่อคนที่ยังไม่เช็กชื่อ</button></div>
+  <div id="missing"></div>
+
+  <h4>สแกนล่าสุด</h4>
+  <div id="recent"></div>
+  <div class="row" style="margin-top:20px"><button class="sec" id="btnLogout">ออกจากระบบ</button></div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let scanner = null, camOn = false, busy = false, lastCode = '', lastAt = 0, PIN = '';
+
+  /* ── เข้าใช้ด้วยรหัสผ่าน ── */
+  try { const saved = localStorage.getItem('scanPin'); if (saved) { $('pin').value = saved; doLogin(); } } catch (e) {}
+  $('btnLogin').onclick = doLogin;
+  $('pin').onkeydown = e => { if (e.key === 'Enter') doLogin(); };
+
+  function doLogin() {
+    const p = $('pin').value.trim(); if (!p) return;
+    $('loginMsg').textContent = 'กำลังตรวจสอบ…';
+    google.script.run
+      .withSuccessHandler(d => {
+        PIN = p;
+        try { localStorage.setItem('scanPin', p); } catch (e) {}
+        $('loginView').style.display = 'none'; $('mainView').style.display = 'block';
+        $('who').textContent = d.name;
+        init(d);
+      })
+      .withFailureHandler(e => {
+        try { localStorage.removeItem('scanPin'); } catch (x) {}
+        $('loginMsg').innerHTML = '<div class="warn">' + esc(e && e.message ? e.message : String(e)) + '</div>';
+      })
+      .login(p);
+  }
+
+  $('btnLogout').onclick = async () => {
+    try { if (camOn) await scanner.stop(); } catch (e) {}
+    try { localStorage.removeItem('scanPin'); } catch (e) {}
+    location.reload();
+  };
+
+  function init(d) {
+    $('session').innerHTML = '';
+    d.sessions.forEach(s => $('session').add(new Option(s.label, s.no)));
+    $('session').value = d.defaultNo;
+    d.sections.forEach(s => $('section').add(new Option(s, s)));
+    refreshCount();
+  }
+
+  $('session').onchange = () => { $('missing').innerHTML = ''; $('recent').innerHTML = ''; refreshCount(); };
+  $('section').onchange = () => { $('missing').innerHTML = ''; refreshCount(); };
+
+  function refreshCount() {
+    google.script.run.withSuccessHandler(c => {
+      $('count').textContent = 'เช็กชื่อแล้ว ' + c.done + ' / ' + c.total + ' คน' + (c.late ? ' (สาย ' + c.late + ')' : '');
+    }).withFailureHandler(fail).getCount(PIN, $('session').value, $('section').value);
+  }
+
+  function formats() {
+    const F = Html5QrcodeSupportedFormats;
+    return [F.CODE_128, F.CODE_39, F.CODE_93, F.CODABAR, F.ITF, F.EAN_13, F.QR_CODE, F.PDF_417, F.DATA_MATRIX];
+  }
+
+  /* ── กล้องแบบสด ── */
+  $('btnCam').onclick = async () => {
+    if (camOn) { await scanner.stop(); camOn = false; $('btnCam').textContent = 'เปิดกล้องสแกน'; return; }
+    scanner = scanner || new Html5Qrcode('reader', {
+      formatsToSupport: formats(), verbose: false,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+    });
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: (w, h) => ({ width: Math.floor(w * 0.9), height: Math.floor(Math.min(w, h) * 0.45) }) },
+      text => onCode(text, 'สแกน'),
+      () => {}
+    ).then(() => { camOn = true; $('btnCam').textContent = 'ปิดกล้อง'; })
+     .catch(e => show('<div>เปิดกล้องไม่ได้ (' + esc(String(e)) + ')</div><div>ให้ใช้ปุ่ม "ถ่ายภาพบัตร" แทน</div>', 'err'));
+  };
+
+  /* ── ถ่ายภาพบัตร (สำรองเมื่อกล้องสดใช้ไม่ได้) ── */
+  $('btnPhoto').onclick = () => $('photo').click();
+  $('photo').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    show('กำลังอ่านบาร์โค้ดจากภาพ…', '');
+    new Html5Qrcode('filereader', { formatsToSupport: formats(), verbose: false })
+      .scanFile(f, false)
+      .then(t => onCode(t, 'ภาพถ่าย'))
+      .catch(() => { show('อ่านบาร์โค้ดจากภาพไม่ได้ ลองถ่ายใหม่ให้บาร์โค้ดชัดและเต็มกรอบ', 'err'); beep(220); });
+    e.target.value = '';
+  };
+
+  /* ── พิมพ์รหัส ── */
+  $('btnManual').onclick = () => {
+    const v = $('manual').value.trim(); if (!v) return;
+    lastCode = ''; onCode(v, 'พิมพ์'); $('manual').value = '';
+  };
+  $('manual').onkeydown = e => { if (e.key === 'Enter') $('btnManual').click(); };
+
+  function onCode(text, method) {
+    const now = Date.now();
+    if (busy) return;
+    if (text === lastCode && now - lastAt < 4000) return; // กันสแกนซ้ำรัว ๆ
+    lastCode = text; lastAt = now; busy = true;
+    show('กำลังบันทึก…', '');
+    google.script.run
+      .withSuccessHandler(r => { busy = false; render(r); refreshCount(); })
+      .withFailureHandler(e => { busy = false; fail(e); })
+      .checkIn(PIN, $('session').value, text, method);
+  }
+
+  function render(r) {
+    if (!r.ok) { show(esc(r.msg), 'err'); beep(220); vib([80, 60, 80]); return; }
+    const sel = $('section').value;
+    const other = sel && r.section !== sel ? '<div class="warn">นักศึกษาอยู่ ' + esc(r.section) + ' ไม่ใช่ ' + esc(sel) + '</div>' : '';
+    if (r.dup) {
+      show('<div class="name">' + esc(r.name) + '</div><div>' + esc(r.id) + ' · ' + esc(r.section) +
+        '</div><div>เช็กชื่อไปแล้วเมื่อ ' + esc(r.time) + ' (' + esc(r.status) + ')</div>' + other, 'dup');
+      beep(440); vib(40); return;
+    }
+    const cls = r.status === 'สาย' ? 'late' : 'ok';
+    show('<div class="name">' + esc(r.name) + '</div><div>' + esc(r.id) + ' · ' + esc(r.section) +
+      (r.major ? ' · ' + esc(r.major) : '') + '</div><div><b>' + esc(r.status) + '</b> เวลา ' + esc(r.time) +
+      ' · ' + esc(r.section) + ' ครบ ' + r.done + '/' + r.total + '</div>' + other, cls);
+    beep(r.status === 'สาย' ? 600 : 880); vib(60);
+    const d = document.createElement('div');
+    d.className = 'item';
+    d.innerHTML = esc(r.time) + ' ' + esc(r.name) + ' <small>' + esc(r.section) + (r.status === 'สาย' ? ' · สาย' : '') + '</small>';
+    $('recent').prepend(d);
+  }
+
+  /* ── คนที่ยังไม่เช็กชื่อ ── */
+  $('btnMissing').onclick = () => {
+    $('missing').innerHTML = 'กำลังโหลด…';
+    google.script.run.withSuccessHandler(list => {
+      if (!list.length) { $('missing').innerHTML = '<div class="item">เช็กชื่อครบทุกคนแล้ว</div>'; return; }
+      $('missing').innerHTML = '<div class="item"><b>ยังไม่เช็กชื่อ ' + list.length + ' คน</b></div>' +
+        list.map(x => '<div class="item">' + esc(x.id) + ' ' + esc(x.name) + ' <small>' + esc(x.section) + '</small></div>').join('');
+    }).withFailureHandler(fail).getMissing(PIN, $('session').value, $('section').value);
+  };
+
+  /* ── ตัวช่วย ── */
+  function show(html, cls) { $('result').className = cls; $('result').innerHTML = html; }
+  function fail(e) { show('เกิดข้อผิดพลาด: ' + esc(e && e.message ? e.message : String(e)), 'err'); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function vib(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
+  let ac = null;
+  function beep(freq) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.value = freq; g.gain.value = 0.15;
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime + 0.15);
+    } catch (e) {}
+  }
+</script>
+</body>
+</html>

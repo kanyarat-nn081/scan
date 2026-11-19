@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ตรวจสอบการเข้าเรียน</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Sarabun', 'Leelawadee UI', 'Thonburi', sans-serif; margin: 0; background: #eceff1; color: #212121; }
+  header { background: #37474f; color: #fff; padding: 12px 16px; font-size: 19px; font-weight: bold; }
+  .wrap { padding: 14px; max-width: 520px; margin: auto; }
+  label { display: block; margin: 10px 0 4px; font-size: 15px; color: #455a64; }
+  input, button { font: inherit; font-size: 17px; width: 100%; }
+  input { padding: 11px; border: 1px solid #b0bec5; border-radius: 8px; background: #fff; }
+  button { margin-top: 14px; padding: 12px; border: 0; border-radius: 8px; background: #37474f; color: #fff; }
+  button.sec { background: #fff; color: #37474f; border: 1px solid #37474f; }
+  .msg { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 15px; }
+  .err { background: #ffcdd2; } .info { background: #e3f2fd; }
+  .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+  .name { font-size: 21px; font-weight: bold; }
+  .sum { display: flex; gap: 8px; margin-top: 10px; }
+  .sum div { flex: 1; text-align: center; border-radius: 8px; padding: 8px 4px; font-size: 14px; }
+  .sum b { display: block; font-size: 22px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; font-size: 15px; }
+  td, th { padding: 9px 8px; border-bottom: 1px solid #eceff1; text-align: left; vertical-align: top; }
+  th { background: #37474f; color: #fff; font-weight: normal; }
+  td small { color: #607d8b; }
+  .ok { background: #c8e6c9; } .late { background: #fff59d; } .miss { background: #ffcdd2; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<header>ตรวจสอบการเข้าเรียน</header>
+<div class="wrap">
+
+  <div id="loginView">
+    <label for="sid">รหัสนักศึกษา</label>
+    <input id="sid" inputmode="numeric" maxlength="11" placeholder="เช่น 69102101101" autocomplete="username">
+    <label for="pin">รหัสส่วนตัว 6 หลัก</label>
+    <input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="ครั้งแรกให้ตั้งรหัสเอง" autocomplete="current-password">
+    <button id="btnLogin">ดูการเข้าเรียน</button>
+    <div id="loginMsg"></div>
+  </div>
+
+  <div id="setupView" class="hide">
+    <div class="msg info">รหัสนักศึกษานี้ยังไม่ได้ตั้งรหัสส่วนตัว กรุณาตั้งรหัสตัวเลข 6 หลักที่จำได้
+      และไม่ซ้ำกับรหัสบัตร ATM หรือรหัสอื่นของคุณ</div>
+    <label for="pin1">ตั้งรหัสส่วนตัว 6 หลัก</label>
+    <input id="pin1" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+    <label for="pin2">พิมพ์รหัสอีกครั้ง</label>
+    <input id="pin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+    <button id="btnSet">บันทึกรหัส</button>
+    <button class="sec" id="btnBack">ย้อนกลับ</button>
+    <div id="setupMsg"></div>
+  </div>
+
+  <div id="resultView" class="hide">
+    <div class="card">
+      <div class="name" id="rName"></div>
+      <div id="rInfo"></div>
+      <div class="sum">
+        <div class="ok">มา<b id="rCame">0</b></div>
+        <div class="late">สาย<b id="rLate">0</b></div>
+        <div class="miss">ขาด<b id="rAbsent">0</b></div>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>ครั้งที่</th><th>หัวข้อ</th><th>สถานะ</th></tr></thead>
+      <tbody id="rBody"></tbody>
+    </table>
+    <div class="msg info">"—" หมายถึงยังไม่มีการเช็กชื่อครั้งนั้นใน Section ของคุณ
+      ถ้าข้อมูลไม่ตรงกับความจริง ให้แจ้งอาจารย์ผู้สอน</div>
+    <button class="sec" id="btnLogout">ออกจากระบบ</button>
+  </div>
+
+</div>
+
+<script>
+  /* ลิงก์ /exec — ถ้าเว้นว่าง ระบบจะอ่านจากไฟล์ index.html ในโฟลเดอร์เดียวกันให้เอง */
+  const API_URL_OVERRIDE = '';
+
+  const $ = id => document.getElementById(id);
+  let apiUrlPromise = null;
+
+  function apiUrl() {
+    if (API_URL_OVERRIDE) return Promise.resolve(API_URL_OVERRIDE);
+    if (!apiUrlPromise) {
+      apiUrlPromise = fetch('index.html', { cache: 'no-store' })
+        .then(r => r.text())
+        .then(t => {
+          const m = t.match(/const API_URL = '([^']+\/exec)'/);
+          if (!m) throw new Error('ยังไม่ได้ตั้งลิงก์ระบบ กรุณาแจ้งอาจารย์');
+          return m[1];
+        });
+    }
+    return apiUrlPromise;
+  }
+
+  function api(action, args) {
+    return apiUrl()
+      .then(u => fetch(u, { method: 'POST', body: JSON.stringify({ action: action, args: args }) }))
+      .then(r => r.json())
+      .then(j => { if (!j.ok) throw new Error(j.error); return j.data; });
+  }
+
+  try { const s = localStorage.getItem('stuId'); if (s) $('sid').value = s; } catch (e) {}
+
+  $('btnLogin').onclick = () => {
+    const id = $('sid').value.replace(/\s/g, ''), pin = $('pin').value.trim();
+    if (!/^\d{11}$/.test(id)) return msg('loginMsg', 'รหัสนักศึกษาต้องเป็นตัวเลข 11 หลัก');
+    if (!/^\d{6}$/.test(pin)) return msg('loginMsg', 'รหัสส่วนตัวต้องเป็นตัวเลข 6 หลัก');
+    busy('btnLogin', true); msg('loginMsg', '');
+    api('studentLogin', [id, pin])
+      .then(d => {
+        try { localStorage.setItem('stuId', id); } catch (e) {}
+        if (d.needSetup) { $('pin1').value = pin; $('pin2').value = ''; show('setupView'); }
+        else render(d);
+      })
+      .catch(e => msg('loginMsg', e.message))
+      .finally(() => busy('btnLogin', false));
+  };
+  $('pin').onkeydown = e => { if (e.key === 'Enter') $('btnLogin').click(); };
+
+  $('btnSet').onclick = () => {
+    const id = $('sid').value.replace(/\s/g, ''), p1 = $('pin1').value.trim(), p2 = $('pin2').value.trim();
+    if (!/^\d{6}$/.test(p1)) return msg('setupMsg', 'รหัสส่วนตัวต้องเป็นตัวเลข 6 หลัก');
+    if (p1 !== p2) return msg('setupMsg', 'รหัสที่พิมพ์สองครั้งไม่ตรงกัน');
+    busy('btnSet', true); msg('setupMsg', '');
+    api('studentSetPin', [id, p1])
+      .then(render)
+      .catch(e => msg('setupMsg', e.message))
+      .finally(() => busy('btnSet', false));
+  };
+  $('btnBack').onclick = () => show('loginView');
+  $('btnLogout').onclick = () => { $('pin').value = ''; $('rBody').innerHTML = ''; show('loginView'); };
+
+  function render(d) {
+    $('rName').textContent = d.name;
+    $('rInfo').textContent = d.id + ' · ' + d.section;
+    $('rCame').textContent = d.came; $('rLate').textContent = d.late; $('rAbsent').textContent = d.absent;
+    $('rBody').innerHTML = '';
+    d.sessions.forEach(s => {
+      const tr = document.createElement('tr');
+      const cls = s.status === 'มา' ? 'ok' : s.status === 'สาย' ? 'late' : s.status === 'ขาด' ? 'miss' : '';
+      tr.innerHTML = '<td>' + s.no + '</td><td>' + esc(s.topic) + '<br><small>' + esc(s.date) + '</small></td>' +
+        '<td class="' + cls + '">' + esc(s.status) + (s.time ? '<br><small>' + esc(s.time) + ' น.</small>' : '') + '</td>';
+      $('rBody').appendChild(tr);
+    });
+    $('pin').value = ''; $('pin1').value = ''; $('pin2').value = '';
+    show('resultView');
+  }
+
+  function show(v) { ['loginView', 'setupView', 'resultView'].forEach(x => $(x).classList.toggle('hide', x !== v)); }
+  function msg(el, t) { $(el).innerHTML = t ? '<div class="msg err">' + esc(t) + '</div>' : ''; }
+  function busy(b, on) { $(b).disabled = on; $(b).style.opacity = on ? .6 : 1; }
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+</script>
+</body>
+</html>
